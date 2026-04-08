@@ -23,21 +23,20 @@ public static class SignatureUpdater
         Console.WriteLine($"Starting signature generation for {options.CompanyName}...");
 
         var templates = new Dictionary<string, string>
-            {
-                { "docx", $"{companyName}.docx" },
-                { "txt", $"{companyName}.txt" },
-                { "rtf", $"{companyName}.rtf" },
-                { "htm", $"{companyName}.htm" }
-            };
+        {
+            { "docx", $"{companyName}.docx" },
+            { "txt", $"{companyName}.txt" },
+            { "rtf", $"{companyName}.rtf" },
+            { "htm", $"{companyName}.htm" }
+        };
 
-        //TODO: check if we can generate the templates from a docx file with and without mobile, to avoid having to maintain 8 template files
         var templatesMobileIncluded = new Dictionary<string, string>
-            {
-                { "docx", $"{companyName} - Mobile Included.docx" },
-                { "txt", $"{companyName} - Mobile Included.txt" },
-                { "rtf", $"{companyName} - Mobile Included.rtf" },
-                { "htm", $"{companyName} - Mobile Included.htm" }
-            };
+        {
+            { "docx", $"{companyName} - Mobile Included.docx" },
+            { "txt", $"{companyName} - Mobile Included.txt" },
+            { "rtf", $"{companyName} - Mobile Included.rtf" },
+            { "htm", $"{companyName} - Mobile Included.htm" }
+        };
 
         // Get AD group members
         Console.WriteLine($"Retrieving members of group {groupName}...");
@@ -52,12 +51,11 @@ public static class SignatureUpdater
             foreach (var principal in group.GetMembers(true))
             {
                 if (principal is not UserPrincipal user) continue;
-
-                // Use UserPrincipalEx to get mobile
-                var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName);
-                if (string.IsNullOrEmpty(user.EmailAddress)) continue;
+                var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
+                if (string.IsNullOrEmpty(user.EmailAddress)) continue; // Skip users without email
 
                 Console.WriteLine($"Processing user: {user.SamAccountName}");
+
                 string userName = user.SamAccountName;
                 string fullName = $"{user.GivenName} {user.Surname}";
                 string title = userEx?.Title ?? string.Empty;
@@ -71,12 +69,12 @@ public static class SignatureUpdater
                 CopySignatureFiles(hasMobile, sigSource, localUserPath, companyName);
 
                 var replacements = new Dictionary<string, string>
-                    {
-                        { "FirstLastName", fullName },
-                        { "Title", title },
-                        { "telephonenr", phone },
-                        { "mobilenr", mobile }
-                    };
+                {
+                    { "FirstLastName", fullName },
+                    { "Title", title },
+                    { "telephonenr", phone },
+                    { "mobilenr", mobile }
+                };
 
                 foreach (var ext in templates.Keys)
                 {
