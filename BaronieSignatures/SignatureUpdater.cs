@@ -8,6 +8,22 @@ namespace BaronieSignatures;
 
 public static class SignatureUpdater
 {
+    private static readonly Dictionary<string, string> Templates = new()
+    {
+        { "docx", "{0}.docx" },
+        { "txt", "{0}.txt" },
+        { "rtf", "{0}.rtf" },
+        { "htm", "{0}.htm" }
+    };
+
+    private static readonly Dictionary<string, string> TemplatesMobileIncluded = new()
+    {
+        { "docx", "{0} - Mobile Included.docx" },
+        { "txt", "{0} - Mobile Included.txt" },
+        { "rtf", "{0} - Mobile Included.rtf" },
+        { "htm", "{0} - Mobile Included.htm" }
+    };
+
     public static void UpdateSignatures(SignatureParams options, bool copyToCitrixProfile = false)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -21,22 +37,6 @@ public static class SignatureUpdater
         string defaultPhone = options.DefaultPhone;
 
         Console.WriteLine($"Starting signature generation for {options.CompanyName}...");
-
-        var templates = new Dictionary<string, string>
-        {
-            { "docx", $"{companyName}.docx" },
-            { "txt", $"{companyName}.txt" },
-            { "rtf", $"{companyName}.rtf" },
-            { "htm", $"{companyName}.htm" }
-        };
-
-        var templatesMobileIncluded = new Dictionary<string, string>
-        {
-            { "docx", $"{companyName} - Mobile Included.docx" },
-            { "txt", $"{companyName} - Mobile Included.txt" },
-            { "rtf", $"{companyName} - Mobile Included.rtf" },
-            { "htm", $"{companyName} - Mobile Included.htm" }
-        };
 
         // Get AD group members
         Console.WriteLine($"Retrieving members of group {groupName}...");
@@ -76,11 +76,12 @@ public static class SignatureUpdater
                     { "mobilenr", mobile }
                 };
 
-                foreach (var ext in templates.Keys)
+                var templateDict = hasMobile ? TemplatesMobileIncluded : Templates;
+                foreach (var ext in templateDict.Keys)
                 {
-                    string templateFileName = hasMobile ? templatesMobileIncluded[ext] : templates[ext];
+                    string templateFileName = string.Format(templateDict[ext], companyName);
                     string templateFile = Path.Combine(sigSource, templateFileName);
-                    string localFile = Path.Combine(localUserPath, templates[ext]);
+                    string localFile = Path.Combine(localUserPath, string.Format(Templates[ext], companyName));
                     if (File.Exists(templateFile))
                     {
                         File.Copy(templateFile, localFile, true);
@@ -126,6 +127,7 @@ public static class SignatureUpdater
             }
         }
         Console.WriteLine($"Signature generation for {options.CompanyName} completed.");
+        Console.WriteLine();
     }
 
     public static void CopySignatureFiles(bool hasMobile, string sigSource, string localUserPath, string companyName)

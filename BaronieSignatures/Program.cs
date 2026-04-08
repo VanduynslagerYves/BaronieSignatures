@@ -44,9 +44,9 @@ public class Program
 
         var signatureParamsList = new List<SignatureParams>
         {
-            //bruggeSignatureParams,
-            //lokerenSignatureParams,
-            //veurneSignatureParams,
+            bruggeSignatureParams,
+            lokerenSignatureParams,
+            veurneSignatureParams,
             alproseSignatureParams,
         };
 
