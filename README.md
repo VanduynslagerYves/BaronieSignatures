@@ -1,1 +1,1 @@
-"# BaronieSignatures" 
+# BaronieSignatures
