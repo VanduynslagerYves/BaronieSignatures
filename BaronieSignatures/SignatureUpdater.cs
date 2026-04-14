@@ -51,18 +51,18 @@ public static class SignatureUpdater
             foreach (var principal in group.GetMembers(true))
             {
                 if (principal is not UserPrincipal user) continue;
-                var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
                 if (string.IsNullOrEmpty(user.EmailAddress)) continue; // Skip users without email
+                var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
 
-                Console.WriteLine($"Processing user: {user.SamAccountName}");
+                var userName = user.SamAccountName.ToLower();
+                Console.WriteLine($"Processing user: {userName}");
 
-                string userName = user.SamAccountName;
                 string fullName = $"{user.GivenName} {user.Surname}";
                 string title = userEx?.Title ?? string.Empty;
                 string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? defaultPhone : user.VoiceTelephoneNumber;
                 string mobile = userEx?.Mobile ?? string.Empty;
 
-                string localUserPath = Path.Combine(baseLocal, userName.ToLower());
+                string localUserPath = Path.Combine(baseLocal, userName);
                 Directory.CreateDirectory(localUserPath);
 
                 bool hasMobile = !string.IsNullOrEmpty(mobile);
