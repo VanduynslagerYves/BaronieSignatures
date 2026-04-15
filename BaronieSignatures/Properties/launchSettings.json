@@ -1,8 +1,7 @@
 {
   "profiles": {
     "BaronieSignatures": {
-      "commandName": "Project",
-      "commandLineArgs": "yves.vanduynslager"
+      "commandName": "Project"
     }
   }
 }
