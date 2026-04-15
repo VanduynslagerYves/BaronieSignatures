@@ -6,6 +6,8 @@ using System.Text;
 
 namespace BaronieSignatures;
 
+//TODO: eliminate duplicat code between UpdateSignature and UpdateSignatures by extracting common logic into separate methods
+
 public static class SignatureUpdater
 {
     private static readonly Dictionary<string, string> Templates = new()
