@@ -1,6 +1,6 @@
-using System.DirectoryServices.AccountManagement;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using System.DirectoryServices.AccountManagement;
 using System.Security.AccessControl;
 using System.Text;
 
@@ -24,19 +24,110 @@ public static class SignatureUpdater
         { "htm", "{0} - Mobile Included.htm" }
     };
 
+    public static void UpdateSignature(string samAccountName, bool copyToCitrixProfile = false)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var encoding = Encoding.GetEncoding(1252); // Western European (Windows)
+
+        using var ctx = new PrincipalContext(ContextType.Domain);
+        samAccountName = samAccountName.ToLower();
+        var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, samAccountName);
+        if (userEx == null) return;
+
+        var officeLocation = userEx.Office;
+        if (string.IsNullOrEmpty(officeLocation))
+        {
+            Console.WriteLine($"User {samAccountName} does not have an office attribute.");
+            return;
+        }
+
+        var companyName = $"Baronie {officeLocation}";
+        var sigSource = Path.Combine(AppContext.BaseDirectory, "Templates", officeLocation);
+        var baseLocal = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
+        var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation]; //TODO: fetch from dictionary based on office location
+
+        string fullName = $"{userEx.GivenName} {userEx.Surname}";
+        string title = userEx.Title ?? string.Empty;
+        string phone = string.IsNullOrEmpty(userEx.VoiceTelephoneNumber) ? defaultPhone : userEx.VoiceTelephoneNumber;
+        string mobile = userEx.Mobile ?? string.Empty;
+
+        string localUserPath = Path.Combine(baseLocal, samAccountName);
+        Directory.CreateDirectory(localUserPath);
+
+        bool hasMobile = !string.IsNullOrEmpty(mobile);
+        CopySignatureFiles(hasMobile, sigSource, localUserPath, companyName);
+
+        var replacements = new Dictionary<string, string>
+                {
+                    { "FirstLastName", fullName },
+                    { "Title", title },
+                    { "telephonenr", phone },
+                    { "mobilenr", mobile }
+                };
+
+        var templateDict = hasMobile ? TemplatesMobileIncluded : Templates;
+        foreach (var ext in templateDict.Keys)
+        {
+            string templateFileName = string.Format(templateDict[ext], companyName);
+            string templateFile = Path.Combine(sigSource, templateFileName);
+            string localFile = Path.Combine(localUserPath, string.Format(Templates[ext], companyName));
+            if (File.Exists(templateFile))
+            {
+                File.Copy(templateFile, localFile, true);
+                if (ext == "docx")
+                {
+                    SetDocxPlaceholders(localFile, replacements);
+                }
+                else
+                {
+                    string content = File.ReadAllText(localFile, encoding);
+                    foreach (var kvp in replacements)
+                    {
+                        content = content.Replace(kvp.Key, kvp.Value);
+                    }
+                    File.WriteAllText(localFile, content, encoding);
+                }
+            }
+        }
+
+        // Set NTFS permissions
+        try
+        {
+            var dirInfo = new DirectoryInfo(localUserPath);
+            var dirSecurity = dirInfo.GetAccessControl();
+            var rule = new FileSystemAccessRule(samAccountName, FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None, AccessControlType.Allow);
+            dirSecurity.AddAccessRule(rule);
+            dirInfo.SetAccessControl(dirSecurity);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to set permissions for {localUserPath}: {ex.Message}");
+        }
+
+        //Optional: copy to Citrix profile
+        if (copyToCitrixProfile)
+        {
+            string citrixPath = $@"\\baroniegroup.com\profiles\CITRIX PROFILES\{samAccountName}\AppData\Microsoft\Signatures";
+            Directory.CreateDirectory(citrixPath);
+            CopyDirectory(localUserPath, citrixPath);
+        }
+    }
+
     public static void UpdateSignatures(SignatureParams options, bool copyToCitrixProfile = false)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var encoding = Encoding.GetEncoding(1252); // Western European (Windows)
 
         // Configuration
-        string groupName = options.GroupName;
-        string companyName = options.CompanyName;
-        string sigSource = options.SigSource;
-        string baseLocal = options.BaseLocal;
-        string defaultPhone = options.DefaultPhone;
+        var groupName = options.GroupName;
+        var companyName = options.Company;
+        var sigSource = options.SigSource;
+        var baseLocal = options.BaseLocal;
+        var defaultPhone = options.DefaultPhone;
 
-        Console.WriteLine($"Starting signature generation for {options.CompanyName}...");
+        Console.WriteLine($"Starting signature generation for {options.Company}...");
 
         // Get AD group members
         Console.WriteLine($"Retrieving members of group {groupName}...");
@@ -53,14 +144,15 @@ public static class SignatureUpdater
                 if (principal is not UserPrincipal user) continue;
                 if (string.IsNullOrEmpty(user.EmailAddress)) continue; // Skip users without email
                 var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
+                if (userEx == null) continue;
 
-                var userName = user.SamAccountName.ToLower();
+                var userName = userEx.SamAccountName.ToLower();
                 Console.WriteLine($"Processing user: {userName}");
 
-                string fullName = $"{user.GivenName} {user.Surname}";
-                string title = userEx?.Title ?? string.Empty;
+                string fullName = $"{userEx.GivenName} {userEx.Surname}";
+                string title = userEx.Title ?? string.Empty;
                 string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? defaultPhone : user.VoiceTelephoneNumber;
-                string mobile = userEx?.Mobile ?? string.Empty;
+                string mobile = userEx.Mobile ?? string.Empty;
 
                 string localUserPath = Path.Combine(baseLocal, userName);
                 Directory.CreateDirectory(localUserPath);
@@ -126,7 +218,7 @@ public static class SignatureUpdater
                 }
             }
         }
-        Console.WriteLine($"Signature generation for {options.CompanyName} completed.");
+        Console.WriteLine($"Signature generation for {options.Company} completed.");
         Console.WriteLine();
     }
 
