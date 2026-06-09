@@ -6,7 +6,7 @@ namespace BaronieSignatures;
 [DirectoryRdnPrefix("CN")]
 public class UserPrincipalEx(PrincipalContext context) : UserPrincipal(context)
 {
-    [DirectoryProperty("mobile")]
+    //[DirectoryProperty("mobile")]
     public string Mobile
     {
         get
@@ -14,7 +14,7 @@ public class UserPrincipalEx(PrincipalContext context) : UserPrincipal(context)
             var result = ExtensionGet("mobile");
             return result.Length > 0 && result[0] != null ? (result[0].ToString() ?? string.Empty) : string.Empty;
         }
-        set { ExtensionSet("mobile", value); }
+        //set { ExtensionSet("mobile", value); }
     }
 
     public string Title

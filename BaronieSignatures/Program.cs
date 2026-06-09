@@ -6,13 +6,13 @@ public class Program
 {
     public static int Main(string[] args)
     {
-        var userNameOption = new Option<string?>("--userName")
+        var userNameOption = new Option<string?>("--user")
         {
             DefaultValueFactory = _ => string.Empty,
             Description = "The user name to look up in AD"
         };
 
-        var copyToCitrixOption = new Option<bool>("--copyToCitrix")
+        var copyToCitrixOption = new Option<bool>("--citrixCopy")
         {
             DefaultValueFactory = _ => false,
             Description = "Whether to copy the generated signatures to the Citrix profile directory"
@@ -35,7 +35,7 @@ public class Program
 
                 Parallel.ForEach(signatureParamsList, signatureParams =>
                 {
-                    SignatureUpdater.UpdateSignatures(signatureParams, copyToCitrixProfile: copyToCitrix);
+                    SignatureUpdater.UpdateSignatures(signatureParams, copyToCitrixProfileEnabled: copyToCitrix);
                 });
 
                 Console.WriteLine("Signature generation and deployment completed.");
@@ -44,6 +44,7 @@ public class Program
             {
                 SignatureUpdater.UpdateSignature(samAccountName, copyToCitrixProfile: copyToCitrix);
             }
+
             return 0;
         });
 

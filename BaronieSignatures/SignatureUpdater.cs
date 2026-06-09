@@ -6,11 +6,9 @@ using System.Text;
 
 namespace BaronieSignatures;
 
-//TODO: eliminate duplicat code between UpdateSignature and UpdateSignatures by extracting common logic into separate methods
-
 public static class SignatureUpdater
 {
-    private static readonly Dictionary<string, string> Templates = new()
+    private static readonly Dictionary<string, string> _templates = new()
     {
         { "docx", "{0}.docx" },
         { "txt", "{0}.txt" },
@@ -18,7 +16,7 @@ public static class SignatureUpdater
         { "htm", "{0}.htm" }
     };
 
-    private static readonly Dictionary<string, string> TemplatesMobileIncluded = new()
+    private static readonly Dictionary<string, string> _templatesMobileIncluded = new()
     {
         { "docx", "{0} - Mobile Included.docx" },
         { "txt", "{0} - Mobile Included.txt" },
@@ -31,10 +29,12 @@ public static class SignatureUpdater
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var encoding = Encoding.GetEncoding(1252); // Western European (Windows)
 
-        using var ctx = new PrincipalContext(ContextType.Domain);
         samAccountName = samAccountName.ToLower();
+
+        using var ctx = new PrincipalContext(ContextType.Domain);
         var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, samAccountName);
         if (userEx == null) return;
+        if (string.IsNullOrEmpty(userEx.EmailAddress)) return;
 
         var officeLocation = userEx.Office;
         if (string.IsNullOrEmpty(officeLocation))
@@ -44,103 +44,56 @@ public static class SignatureUpdater
         }
 
         var companyName = $"Baronie {officeLocation}";
-        var sigSource = Path.Combine(AppContext.BaseDirectory, "Templates", officeLocation);
-        var baseLocal = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
-        var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation]; //TODO: fetch from dictionary based on office location
+        var sigInput = Path.Combine(AppContext.BaseDirectory, "Templates", officeLocation);
+        var sigOutput = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
+        var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation];
 
         string fullName = $"{userEx.GivenName} {userEx.Surname}";
         string title = userEx.Title ?? string.Empty;
         string phone = string.IsNullOrEmpty(userEx.VoiceTelephoneNumber) ? defaultPhone : userEx.VoiceTelephoneNumber;
         string mobile = userEx.Mobile ?? string.Empty;
 
-        string localUserPath = Path.Combine(baseLocal, samAccountName);
-        Directory.CreateDirectory(localUserPath);
+        string outputUserPath = Path.Combine(sigOutput, samAccountName);
+        Directory.CreateDirectory(outputUserPath);
 
         bool hasMobile = !string.IsNullOrEmpty(mobile);
-        CopySignatureFiles(hasMobile, sigSource, localUserPath, companyName);
+        CopySignatureFiles(hasMobile, sigInput, outputUserPath, companyName);
 
         var replacements = new Dictionary<string, string>
-                {
-                    { "FirstLastName", fullName },
-                    { "Title", title },
-                    { "telephonenr", phone },
-                    { "mobilenr", mobile }
-                };
-
-        var templateDict = hasMobile ? TemplatesMobileIncluded : Templates;
-        foreach (var ext in templateDict.Keys)
         {
-            string templateFileName = string.Format(templateDict[ext], companyName);
-            string templateFile = Path.Combine(sigSource, templateFileName);
-            string localFile = Path.Combine(localUserPath, string.Format(Templates[ext], companyName));
-            if (File.Exists(templateFile))
-            {
-                File.Copy(templateFile, localFile, true);
-                if (ext == "docx")
-                {
-                    SetDocxPlaceholders(localFile, replacements);
-                }
-                else
-                {
-                    string content = File.ReadAllText(localFile, encoding);
-                    foreach (var kvp in replacements)
-                    {
-                        content = content.Replace(kvp.Key, kvp.Value);
-                    }
-                    File.WriteAllText(localFile, content, encoding);
-                }
-            }
-        }
+            { "FirstLastName", fullName },
+            { "Title", title },
+            { "telephonenr", phone },
+            { "mobilenr", mobile }
+        };
 
-        // Set NTFS permissions
-        try
-        {
-            var dirInfo = new DirectoryInfo(localUserPath);
-            var dirSecurity = dirInfo.GetAccessControl();
-            var rule = new FileSystemAccessRule(samAccountName, FileSystemRights.FullControl,
-                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-                PropagationFlags.None, AccessControlType.Allow);
-            dirSecurity.AddAccessRule(rule);
-            dirInfo.SetAccessControl(dirSecurity);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to set permissions for {localUserPath}: {ex.Message}");
-        }
+        ProcessTemplates(hasMobile, sigInput, outputUserPath, companyName, replacements, encoding);
+        SetDirectoryPermissions(outputUserPath, samAccountName);
 
-        //Optional: copy to Citrix profile
         if (copyToCitrixProfile)
         {
-            string citrixPath = $@"\\baroniegroup.com\profiles\CITRIX PROFILES\{samAccountName}\AppData\Microsoft\Signatures";
-            Directory.CreateDirectory(citrixPath);
-            CopyDirectory(localUserPath, citrixPath);
+            CopyToCitrixProfile(outputUserPath, samAccountName);
         }
     }
 
-    public static void UpdateSignatures(SignatureParams options, bool copyToCitrixProfile = false)
+    public static void UpdateSignatures(SignatureParams options, bool copyToCitrixProfileEnabled = false)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var encoding = Encoding.GetEncoding(1252); // Western European (Windows)
 
-        // Configuration
-        var groupName = options.GroupName;
-        var companyName = options.Company;
-        var sigSource = options.SigSource;
-        var baseLocal = options.BaseLocal;
-        var defaultPhone = options.DefaultPhone;
-
         Console.WriteLine($"Starting signature generation for {options.Company}...");
 
         // Get AD group members
-        Console.WriteLine($"Retrieving members of group {groupName}...");
+        Console.WriteLine($"Retrieving members of group {options.GroupName}...");
         using (var ctx = new PrincipalContext(ContextType.Domain))
-        using (var group = GroupPrincipal.FindByIdentity(ctx, groupName))
+        using (var group = GroupPrincipal.FindByIdentity(ctx, options.GroupName))
         {
             if (group == null)
             {
-                Console.WriteLine($"Group {groupName} not found.");
+                Console.WriteLine($"Group {options.GroupName} not found.");
                 return;
             }
+
             foreach (var principal in group.GetMembers(true))
             {
                 if (principal is not UserPrincipal user) continue;
@@ -153,14 +106,14 @@ public static class SignatureUpdater
 
                 string fullName = $"{userEx.GivenName} {userEx.Surname}";
                 string title = userEx.Title ?? string.Empty;
-                string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? defaultPhone : user.VoiceTelephoneNumber;
+                string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? options.DefaultPhone : user.VoiceTelephoneNumber;
                 string mobile = userEx.Mobile ?? string.Empty;
 
-                string localUserPath = Path.Combine(baseLocal, userName);
-                Directory.CreateDirectory(localUserPath);
+                string sigTargetPath = Path.Combine(options.BaseLocal, userName);
+                Directory.CreateDirectory(sigTargetPath);
 
                 bool hasMobile = !string.IsNullOrEmpty(mobile);
-                CopySignatureFiles(hasMobile, sigSource, localUserPath, companyName);
+                CopySignatureFiles(hasMobile, options.SigSource, sigTargetPath, options.Company);
 
                 var replacements = new Dictionary<string, string>
                 {
@@ -170,75 +123,83 @@ public static class SignatureUpdater
                     { "mobilenr", mobile }
                 };
 
-                var templateDict = hasMobile ? TemplatesMobileIncluded : Templates;
-                foreach (var ext in templateDict.Keys)
-                {
-                    string templateFileName = string.Format(templateDict[ext], companyName);
-                    string templateFile = Path.Combine(sigSource, templateFileName);
-                    string localFile = Path.Combine(localUserPath, string.Format(Templates[ext], companyName));
-                    if (File.Exists(templateFile))
-                    {
-                        File.Copy(templateFile, localFile, true);
-                        if (ext == "docx")
-                        {
-                            SetDocxPlaceholders(localFile, replacements);
-                        }
-                        else
-                        {
-                            string content = File.ReadAllText(localFile, encoding);
-                            foreach (var kvp in replacements)
-                            {
-                                content = content.Replace(kvp.Key, kvp.Value);
-                            }
-                            File.WriteAllText(localFile, content, encoding);
-                        }
-                    }
-                }
-
-                // Set NTFS permissions
-                try
-                {
-                    var dirInfo = new DirectoryInfo(localUserPath);
-                    var dirSecurity = dirInfo.GetAccessControl();
-                    var rule = new FileSystemAccessRule(userName, FileSystemRights.FullControl,
-                        InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
-                        PropagationFlags.None, AccessControlType.Allow);
-                    dirSecurity.AddAccessRule(rule);
-                    dirInfo.SetAccessControl(dirSecurity);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to set permissions for {localUserPath}: {ex.Message}");
-                }
-
-                //Optional: copy to Citrix profile
-                if (copyToCitrixProfile)
-                {
-                    string citrixPath = $@"\\baroniegroup.com\profiles\CITRIX PROFILES\{userName}\AppData\Microsoft\Signatures";
-                    Directory.CreateDirectory(citrixPath);
-                    CopyDirectory(localUserPath, citrixPath);
-                }
+                ProcessTemplates(hasMobile, options.SigSource, sigTargetPath, options.Company, replacements, encoding);
+                SetDirectoryPermissions(sigTargetPath, userName);
+                if (copyToCitrixProfileEnabled) CopyToCitrixProfile(sigTargetPath, userName);
             }
         }
+
         Console.WriteLine($"Signature generation for {options.Company} completed.");
         Console.WriteLine();
     }
 
-    public static void CopySignatureFiles(bool hasMobile, string sigSource, string localUserPath, string companyName)
+    private static void ProcessTemplates(bool hasMobile, string sigSourcePath, string sigTargetPath, string companyName, Dictionary<string, string> replacements, Encoding encoding)
+    {
+        var templateDict = hasMobile ? _templatesMobileIncluded : _templates;
+        foreach (var ext in templateDict.Keys)
+        {
+            string templateFileName = string.Format(templateDict[ext], companyName);
+            string sourceFile = Path.Combine(sigSourcePath, templateFileName);
+            string targetFile = Path.Combine(sigTargetPath, string.Format(_templates[ext], companyName));
+
+            if (File.Exists(sourceFile))
+            {
+                File.Copy(sourceFile, targetFile, true);
+                if (ext == "docx")
+                {
+                    SetDocxPlaceholders(targetFile, replacements);
+                }
+                else
+                {
+                    string content = File.ReadAllText(targetFile, encoding);
+                    foreach (var kvp in replacements)
+                    {
+                        content = content.Replace(kvp.Key, kvp.Value);
+                    }
+                    File.WriteAllText(targetFile, content, encoding);
+                }
+            }
+        }
+    }
+
+    private static void SetDirectoryPermissions(string directoryPath, string samAccountName)
+    {
+        try
+        {
+            var dirInfo = new DirectoryInfo(directoryPath);
+            var dirSecurity = dirInfo.GetAccessControl();
+            var rule = new FileSystemAccessRule(samAccountName, FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None, AccessControlType.Allow);
+            dirSecurity.AddAccessRule(rule);
+            dirInfo.SetAccessControl(dirSecurity);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to set permissions for {directoryPath}: {ex.Message}");
+        }
+    }
+
+    private static void CopyToCitrixProfile(string sourceLocalUserPath, string samAccountName)
+    {
+        string citrixTargetPath = $@"\\baroniegroup.com\profiles\CITRIX PROFILES\{samAccountName}\AppData\Microsoft\Signatures";
+        Directory.CreateDirectory(citrixTargetPath);
+        CopyDirectory(sourceLocalUserPath, citrixTargetPath);
+    }
+
+    public static void CopySignatureFiles(bool hasMobile, string sigSource, string sigTargetPath, string companyName)
     {
         string sigTargetHtmFilesToCopy = hasMobile
-    ? Path.Combine(localUserPath, $"{companyName} - Mobile Included_files")
-    : Path.Combine(localUserPath, $"{companyName}_files");
+            ? Path.Combine(sigTargetPath, $"{companyName} - Mobile Included_files")
+            : Path.Combine(sigTargetPath, $"{companyName}_files");
+
         Directory.CreateDirectory(sigTargetHtmFilesToCopy);
 
         string sigSourceHtmFiles = hasMobile
             ? Path.Combine(sigSource, $"{companyName} - Mobile Included_files")
             : Path.Combine(sigSource, $"{companyName}_files");
 
-        if (Directory.Exists(sigSourceHtmFiles))
-        {
-            CopyDirectory(sigSourceHtmFiles, sigTargetHtmFilesToCopy);
-        }
+        if (Directory.Exists(sigSourceHtmFiles)) CopyDirectory(sigSourceHtmFiles, sigTargetHtmFilesToCopy);
     }
 
     private static void CopyDirectory(string sourceDir, string destDir)
@@ -247,6 +208,7 @@ public static class SignatureUpdater
         {
             Directory.CreateDirectory(dirPath.Replace(sourceDir, destDir));
         }
+
         foreach (var newPath in Directory.GetFiles(sourceDir, "*.*", SearchOption.AllDirectories))
         {
             File.Copy(newPath, newPath.Replace(sourceDir, destDir), true);
@@ -263,17 +225,14 @@ public static class SignatureUpdater
 
         foreach (var text in body.Descendants<Text>())
         {
-            if (text.Text != null)
+            if (text.Text == null) continue;
+            foreach (var kvp in replacements)
             {
-                foreach (var kvp in replacements)
-                {
-                    if (text.Text.Contains(kvp.Key))
-                    {
-                        text.Text = text.Text.Replace(kvp.Key, kvp.Value);
-                    }
-                }
+                if (!text.Text.Contains(kvp.Key)) continue;
+                text.Text = text.Text.Replace(kvp.Key, kvp.Value);
             }
         }
+
         wordDoc.MainDocumentPart.Document.Save();
     }
 }
