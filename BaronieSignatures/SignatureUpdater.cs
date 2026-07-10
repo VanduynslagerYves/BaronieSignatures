@@ -86,6 +86,9 @@ public static class SignatureUpdater
 
         // Get AD group members
         Console.WriteLine($"Retrieving members of group {options.GroupName}...");
+
+        // Materialize the user list first to avoid threading issues with AD queries
+        List<string> userSamAccountNames;
         using (var ctx = new PrincipalContext(ContextType.Domain))
         using (var group = GroupPrincipal.FindByIdentity(ctx, options.GroupName))
         {
@@ -95,41 +98,51 @@ public static class SignatureUpdater
                 return;
             }
 
-            foreach (var principal in group.GetMembers(true))
-            {
-                if (principal is not UserPrincipal user) continue;
-                if (string.IsNullOrEmpty(user.EmailAddress)) continue; // Skip users without email
-                var email = user.EmailAddress;
-                var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
-                if (userEx == null) continue;
-
-                var userName = userEx.SamAccountName.ToLower();
-                Console.WriteLine($"Processing user: {userName}");
-
-                string fullName = $"{userEx.GivenName} {userEx.Surname}";
-                string title = userEx.Title ?? string.Empty;
-                string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? options.DefaultPhone : user.VoiceTelephoneNumber;
-                string mobile = userEx.Mobile ?? string.Empty;
-
-                string sigTargetPath = Path.Combine(options.BaseLocal, userName);
-                Directory.CreateDirectory(sigTargetPath);
-
-                bool hasMobile = !string.IsNullOrEmpty(mobile);
-                CopySignatureHtmFiles(hasMobile, options.SigSource, sigTargetPath, options.Company, email);
-
-                var replacements = new Dictionary<string, string>
-                {
-                    { "FirstLastName", fullName },
-                    { "Title", title },
-                    { "telephonenr", phone },
-                    { "mobilenr", mobile }
-                };
-
-                ProcessTemplates(hasMobile, options.SigSource, sigTargetPath, options.Company, email, replacements, encoding);
-                SetDirectoryPermissions(sigTargetPath, userName);
-                if (copyToCitrixProfileEnabled) CopyToCitrixProfile(sigTargetPath, userName);
-            }
+            userSamAccountNames = [.. group.GetMembers(true)
+                .OfType<UserPrincipal>()
+                .Where(u => !string.IsNullOrEmpty(u.EmailAddress))
+                .Select(u => u.SamAccountName)];
         }
+
+        Console.WriteLine($"Found {userSamAccountNames.Count} users to process.");
+
+        // Process users in parallel
+        Parallel.ForEach(userSamAccountNames, samAccountName =>
+        {
+            using var ctx = new PrincipalContext(ContextType.Domain);
+            var user = UserPrincipal.FindByIdentity(ctx, IdentityType.SamAccountName, samAccountName);
+            if (user == null || string.IsNullOrEmpty(user.EmailAddress)) return;
+
+            var email = user.EmailAddress;
+            var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, samAccountName);
+            if (userEx == null) return;
+
+            var userName = userEx.SamAccountName.ToLower();
+            Console.WriteLine($"Processing user: {userName}");
+
+            string fullName = $"{userEx.GivenName} {userEx.Surname}";
+            string title = userEx.Title ?? string.Empty;
+            string phone = string.IsNullOrEmpty(user.VoiceTelephoneNumber) ? options.DefaultPhone : user.VoiceTelephoneNumber;
+            string mobile = userEx.Mobile ?? string.Empty;
+
+            string sigTargetPath = Path.Combine(options.BaseLocal, userName);
+            Directory.CreateDirectory(sigTargetPath);
+
+            bool hasMobile = !string.IsNullOrEmpty(mobile);
+            CopySignatureHtmFiles(hasMobile, options.SigSource, sigTargetPath, options.Company, email);
+
+            var replacements = new Dictionary<string, string>
+            {
+                { "FirstLastName", fullName },
+                { "Title", title },
+                { "telephonenr", phone },
+                { "mobilenr", mobile }
+            };
+
+            ProcessTemplates(hasMobile, options.SigSource, sigTargetPath, options.Company, email, replacements, encoding);
+            SetDirectoryPermissions(sigTargetPath, userName);
+            if (copyToCitrixProfileEnabled) CopyToCitrixProfile(sigTargetPath, userName);
+        });
 
         Console.WriteLine($"Signature generation for {options.Company} completed.");
         Console.WriteLine();
