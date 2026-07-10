@@ -43,7 +43,7 @@ public static class SignatureUpdater
             return;
         }
 
-        var companyName = $"Baronie {officeLocation}";
+        var companyName = $"Baronie {officeLocation}"; //TODO: this will not work for Alprose, should not contain Baronie and officeLocation will be Caslano in AD
         var sigInput = Path.Combine(AppContext.BaseDirectory, "Templates", officeLocation);
         var sigOutput = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
         var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation];
@@ -52,12 +52,13 @@ public static class SignatureUpdater
         string title = userEx.Title ?? string.Empty;
         string phone = string.IsNullOrEmpty(userEx.VoiceTelephoneNumber) ? defaultPhone : userEx.VoiceTelephoneNumber;
         string mobile = userEx.Mobile ?? string.Empty;
+        var email = userEx.EmailAddress;
 
         string outputUserPath = Path.Combine(sigOutput, samAccountName);
         Directory.CreateDirectory(outputUserPath);
 
         bool hasMobile = !string.IsNullOrEmpty(mobile);
-        CopySignatureFiles(hasMobile, sigInput, outputUserPath, companyName);
+        CopySignatureHtmFiles(hasMobile, sigInput, outputUserPath, companyName, email);
 
         var replacements = new Dictionary<string, string>
         {
@@ -67,7 +68,7 @@ public static class SignatureUpdater
             { "mobilenr", mobile }
         };
 
-        ProcessTemplates(hasMobile, sigInput, outputUserPath, companyName, replacements, encoding);
+        ProcessTemplates(hasMobile, sigInput, outputUserPath, companyName, email, replacements, encoding);
         SetDirectoryPermissions(outputUserPath, samAccountName);
 
         if (copyToCitrixProfile)
@@ -98,6 +99,7 @@ public static class SignatureUpdater
             {
                 if (principal is not UserPrincipal user) continue;
                 if (string.IsNullOrEmpty(user.EmailAddress)) continue; // Skip users without email
+                var email = user.EmailAddress;
                 var userEx = UserPrincipalEx.FindByIdentity(ctx, IdentityType.SamAccountName, user.SamAccountName); // Use UserPrincipalEx to get mobile
                 if (userEx == null) continue;
 
@@ -113,7 +115,7 @@ public static class SignatureUpdater
                 Directory.CreateDirectory(sigTargetPath);
 
                 bool hasMobile = !string.IsNullOrEmpty(mobile);
-                CopySignatureFiles(hasMobile, options.SigSource, sigTargetPath, options.Company);
+                CopySignatureHtmFiles(hasMobile, options.SigSource, sigTargetPath, options.Company, email);
 
                 var replacements = new Dictionary<string, string>
                 {
@@ -123,7 +125,7 @@ public static class SignatureUpdater
                     { "mobilenr", mobile }
                 };
 
-                ProcessTemplates(hasMobile, options.SigSource, sigTargetPath, options.Company, replacements, encoding);
+                ProcessTemplates(hasMobile, options.SigSource, sigTargetPath, options.Company, email, replacements, encoding);
                 SetDirectoryPermissions(sigTargetPath, userName);
                 if (copyToCitrixProfileEnabled) CopyToCitrixProfile(sigTargetPath, userName);
             }
@@ -133,14 +135,14 @@ public static class SignatureUpdater
         Console.WriteLine();
     }
 
-    private static void ProcessTemplates(bool hasMobile, string sigSourcePath, string sigTargetPath, string companyName, Dictionary<string, string> replacements, Encoding encoding)
+    private static void ProcessTemplates(bool hasMobile, string sigSourcePath, string sigTargetPath, string companyName, string email, Dictionary<string, string> replacements, Encoding encoding)
     {
         var templateDict = hasMobile ? _templatesMobileIncluded : _templates;
         foreach (var ext in templateDict.Keys)
         {
             string templateFileName = string.Format(templateDict[ext], companyName);
             string sourceFile = Path.Combine(sigSourcePath, templateFileName);
-            string targetFile = Path.Combine(sigTargetPath, string.Format(_templates[ext], companyName));
+            string targetFile = Path.Combine(sigTargetPath, $"{companyName} ({email}).{ext}");
 
             if (File.Exists(sourceFile))
             {
@@ -156,6 +158,22 @@ public static class SignatureUpdater
                     {
                         content = content.Replace(kvp.Key, kvp.Value);
                     }
+
+                    // Fix HTML file references to the renamed folder
+                    if (ext == "htm")
+                    {
+                        string oldFolderName = hasMobile
+                            ? $"{companyName} - Mobile Included_files"
+                            : $"{companyName}_files";
+                        string newFolderName = hasMobile
+                            ? $"{companyName} ({email}) - Mobile Included_files"
+                            : $"{companyName} ({email})_files";
+
+                        // Replace both regular and URL-encoded folder names
+                        content = content.Replace(oldFolderName, newFolderName);
+                        content = content.Replace(Uri.EscapeDataString(oldFolderName), Uri.EscapeDataString(newFolderName));
+                    }
+
                     File.WriteAllText(targetFile, content, encoding);
                 }
             }
@@ -187,11 +205,11 @@ public static class SignatureUpdater
         CopyDirectory(sourceLocalUserPath, citrixTargetPath);
     }
 
-    public static void CopySignatureFiles(bool hasMobile, string sigSource, string sigTargetPath, string companyName)
+    public static void CopySignatureHtmFiles(bool hasMobile, string sigSource, string sigTargetPath, string companyName, string email)
     {
         string sigTargetHtmFilesToCopy = hasMobile
-            ? Path.Combine(sigTargetPath, $"{companyName} - Mobile Included_files")
-            : Path.Combine(sigTargetPath, $"{companyName}_files");
+            ? Path.Combine(sigTargetPath, $"{companyName} ({email}) - Mobile Included_files")
+            : Path.Combine(sigTargetPath, $"{companyName} ({email})_files");
 
         Directory.CreateDirectory(sigTargetHtmFilesToCopy);
 
