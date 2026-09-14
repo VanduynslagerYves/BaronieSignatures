@@ -1,1 +1,1 @@
-debug single user signature gen: filenames are not correct (even though it should be :( )
+check diskspace before copy from citrix to local

@@ -1,7 +1,8 @@
 {
   "profiles": {
     "BaronieSignatures": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "commandLineArgs": "--user lisl.dewinne"
     }
   }
 }

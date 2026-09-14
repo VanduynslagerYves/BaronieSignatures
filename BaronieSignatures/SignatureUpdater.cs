@@ -45,7 +45,12 @@ public static class SignatureUpdater
 
         var companyName = $"Baronie {officeLocation}"; //TODO: this will not work for Alprose, should not contain Baronie and officeLocation will be Caslano in AD
         var sigInput = Path.Combine(AppContext.BaseDirectory, "Templates", officeLocation);
+#if(DEBUG)
         var sigOutput = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
+#else
+        var sigOutput = Path.Combine(AppContext.BaseDirectory, @"C:\BaronieSignatures", officeLocation);
+#endif
+
         var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation];
 
         string fullName = $"{userEx.GivenName} {userEx.Surname}";
@@ -71,10 +76,7 @@ public static class SignatureUpdater
         ProcessTemplates(hasMobile, sigInput, outputUserPath, companyName, email, replacements, encoding);
         SetDirectoryPermissions(outputUserPath, samAccountName);
 
-        if (copyToCitrixProfile)
-        {
-            CopyToCitrixProfile(outputUserPath, samAccountName);
-        }
+        if (copyToCitrixProfile) CopyToCitrixProfile(outputUserPath, samAccountName);
     }
 
     public static void UpdateSignatures(SignatureParams options, bool copyToCitrixProfileEnabled = false)
@@ -150,7 +152,9 @@ public static class SignatureUpdater
         {
             string templateFileName = string.Format(templateDict[ext], companyName);
             string sourceFile = Path.Combine(sigSourcePath, templateFileName);
-            string targetFile = Path.Combine(sigTargetPath, $"{companyName} ({email}).{ext}");
+
+            string mobileAffix = hasMobile ? " - Mobile Included" : string.Empty;
+            string targetFile = Path.Combine(sigTargetPath, $"{companyName} ({email}){mobileAffix}.{ext}");
 
             if (File.Exists(sourceFile))
             {
@@ -204,6 +208,13 @@ public static class SignatureUpdater
         {
             Console.WriteLine($"Failed to set permissions for {directoryPath}: {ex.Message}");
         }
+    }
+
+    private static void CopyToPublicShare(string sourceLocalUserPath, string samAccountName)
+    {
+        string publicShareTargetPath = $@"C:\BaronieSignatures\{samAccountName}\";
+        Directory.CreateDirectory(publicShareTargetPath);
+        CopyDirectory(sourceLocalUserPath, publicShareTargetPath);
     }
 
     private static void CopyToCitrixProfile(string sourceLocalUserPath, string samAccountName)
