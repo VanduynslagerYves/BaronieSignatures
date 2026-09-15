@@ -48,7 +48,7 @@ public static class SignatureUpdater
 #if(DEBUG)
         var sigOutput = Path.Combine(AppContext.BaseDirectory, "Output", officeLocation);
 #else
-        var sigOutput = Path.Combine(AppContext.BaseDirectory, @"C:\BaronieSignatures", officeLocation);
+        var sigOutput = Path.Combine(AppContext.BaseDirectory, @"\\dcfs01\temp$\Signatures", officeLocation);
 #endif
 
         var defaultPhone = SignatureParamsList.DefaultPhones[officeLocation];
@@ -208,13 +208,6 @@ public static class SignatureUpdater
         {
             Console.WriteLine($"Failed to set permissions for {directoryPath}: {ex.Message}");
         }
-    }
-
-    private static void CopyToPublicShare(string sourceLocalUserPath, string samAccountName)
-    {
-        string publicShareTargetPath = $@"C:\BaronieSignatures\{samAccountName}\";
-        Directory.CreateDirectory(publicShareTargetPath);
-        CopyDirectory(sourceLocalUserPath, publicShareTargetPath);
     }
 
     private static void CopyToCitrixProfile(string sourceLocalUserPath, string samAccountName)

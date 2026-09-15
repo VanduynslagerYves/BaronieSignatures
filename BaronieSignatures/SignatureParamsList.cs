@@ -21,7 +21,7 @@ public static class SignatureParamsList
     private static readonly string _outputBasePath = "Output";
 
 #else
-    private static readonly string _outputBasePath = @"C:\BaronieSignatures";
+    private static readonly string _outputBasePath = @"\\dcfs01\temp$\Signatures";
 #endif
 
     // Company should be the same as the company name in the company folder template files
